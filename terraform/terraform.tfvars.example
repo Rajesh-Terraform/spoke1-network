@@ -1,26 +1,44 @@
-aws_region            = "ap-south-1"
-spoke_vpc_name        = "spoke1-network"
-spoke_vpc_cidr        = "10.1.0.0/16"
-hub_vpc_cidr          = "10.0.0.0/16"
-transit_gateway_id    = "tgw-REPLACE_WITH_HUB_OUTPUT"
-ram_resource_share_arn = "arn:aws:ram:ap-south-1:111122223333:resource-share/REPLACE_WITH_HUB_OUTPUT"
-accept_ram_share_invitation = true
+spoke_vpc_name = "spoke-vpc"
+
+spoke_vpc_cidr = "10.1.0.0/16"
+
+hub_vpc_cidr = "10.0.0.0/16"
+
+aws_region = "ap-south-1"
 
 subnets = {
-  private_a = {
-    cidr_block        = "10.1.0.0/24"
-    availability_zone = "ap-south-1a"
-    public            = false
+  private_1 = {
+    cidr_block = "10.1.0.0/24"
+    az         = "ap-south-1a"
+    type       = "private"
   }
-  private_b = {
-    cidr_block        = "10.1.1.0/24"
-    availability_zone = "ap-south-1b"
-    public            = false
+
+  private_2 = {
+    cidr_block = "10.1.1.0/24"
+    az         = "ap-south-1b"
+    type       = "private"
   }
 }
 
+transit_gateway_id = "REPLACE_WITH_TGW_ID"
+
+ram_resource_share_arn = "REPLACE_WITH_RAM_SHARE_ARN"
+
+accept_ram_share_invitation = true
+
+interface_endpoint_services = [
+  "ssm",
+  "ssmmessages",
+  "ec2messages",
+  "logs",
+  "secretsmanager",
+  "kms",
+  "sts",
+  "ecr.api",
+  "ecr.dkr"
+]
+
 tags = {
+  Project     = "Hub-Spoke"
   Environment = "dev"
-  ManagedBy   = "Terraform"
-  Network     = "spoke1"
 }  
