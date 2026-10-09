@@ -29,6 +29,7 @@ jobs:
         working-directory: terraform
 
     steps:
+
       # 1. Checkout
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,23 +38,58 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # 3. Terraform Format
-      - name: Terraform Format Check
-        run: terraform fmt 
+      # 3. Configure AWS using GitHub OIDC
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume:  arn:aws:iam::434097521299:role/testingdummy 
+          aws-region: ap-south-1
 
-      # 4. Terraform Init
+      # 4. Check AWS identity
+      - name: Check AWS identity
+        run: aws sts get-caller-identity
+
+      # 5. Terraform Format
+      - name: Terraform Format Check
+        run: terraform fmt -check 
+
+      # 6. Terraform Init
       - name: Terraform Init
         run: terraform init -input=false
 
-      # 5. Terraform Validate
+      # 7. Terraform Validate
       - name: Terraform Validate
         run: terraform validate
 
-      # 6. Terraform Plan
+      # 8. Terraform Plan
       - name: Terraform Plan
+        env:
+          TF_VAR_subnets: |
+            {
+              "private_1": {
+                "cidr_block": "10.1.0.0/24",
+                "az": "ap-south-1a"
+              },
+              "private_2": {
+                "cidr_block": "10.1.1.0/24",
+                "az": "ap-south-1b"
+              }
+            }
         run: terraform plan -input=false
 
-      # 7. Terraform Apply
+      # 9. Terraform Apply
       - name: Terraform Apply
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: terraform apply -auto-approve -input=false  
+        env:
+          TF_VAR_subnets: |
+            {
+              "private_1": {
+                "cidr_block": "10.1.0.0/24",
+                "az": "ap-south-1a"
+              },
+              "private_2": {
+                "cidr_block": "10.1.1.0/24",
+                "az": "ap-south-1b"
+              }
+            }
+        run: terraform apply -auto-approve -input=false   

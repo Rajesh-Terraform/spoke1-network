@@ -8,13 +8,11 @@ module "spoke_vpc" {
   tags               = var.tags
 }
 
-
 resource "aws_ram_resource_share_accepter" "transit_gateway" {
   count = var.accept_ram_share_invitation ? 1 : 0
 
   share_arn = var.ram_resource_share_arn
 }
-
 
 module "transit_gateway_attachment" {
   source = "./modules/transit-gateway-attachment"
@@ -25,24 +23,18 @@ module "transit_gateway_attachment" {
   subnet_ids         = module.spoke_vpc.private_subnet_ids
   tags               = var.tags
 
-  depends_on = [
-    aws_ram_resource_share_accepter.transit_gateway
-  ]
+  depends_on = [aws_ram_resource_share_accepter.transit_gateway]
 }
-
 
 module "hub_routes" {
   source = "./modules/vpc-tgw-routes"
 
   route_table_ids    = module.spoke_vpc.private_route_table_ids
-  destination_cidr  = var.hub_vpc_cidr
+  destination_cidr   = var.hub_vpc_cidr
   transit_gateway_id = var.transit_gateway_id
 
-  depends_on = [
-    module.transit_gateway_attachment
-  ]
+  depends_on = [module.transit_gateway_attachment]
 }
-
 
 module "vpc_endpoints" {
   source = "./modules/vpc-endpoints"
@@ -55,4 +47,4 @@ module "vpc_endpoints" {
   private_route_table_ids     = module.spoke_vpc.private_route_table_ids
   interface_endpoint_services = var.interface_endpoint_services
   tags                        = var.tags
-} 
+}   
