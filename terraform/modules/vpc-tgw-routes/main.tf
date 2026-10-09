@@ -1,7 +1,9 @@
-resource "aws_route" "this" {
-  for_each = toset(var.route_table_ids)
+module "spoke_vpc" {
+  source = "./modules/vpc"
 
-  route_table_id         = each.value
-  destination_cidr_block = var.destination_cidr
-  transit_gateway_id     = var.transit_gateway_id
+  name               = var.spoke_vpc_name
+  cidr_block         = var.spoke_vpc_cidr
+  subnets            = var.subnets
+  enable_nat_gateway = false
+  tags               = var.tags
 }  
