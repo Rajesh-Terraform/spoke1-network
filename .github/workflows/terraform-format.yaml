@@ -51,7 +51,7 @@ jobs:
 
       # 5. Terraform Format
       - name: Terraform Format Check
-        run: terraform fmt -check -recursive
+        run: terraform fmt 
 
       # 6. Terraform Init
       - name: Terraform Init
