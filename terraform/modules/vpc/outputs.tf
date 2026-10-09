@@ -36,4 +36,4 @@ output "private_route_table_ids" {
 output "nat_gateway_ids" {
   description = "NAT Gateway IDs"
   value       = [for key in sort(keys(aws_nat_gateway.this)) : aws_nat_gateway.this[key].id]
-}  
+}    
