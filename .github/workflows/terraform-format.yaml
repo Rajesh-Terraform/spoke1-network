@@ -26,11 +26,11 @@ jobs:
 
     defaults:
       run:
-        working-directory: terraform
+        working-directory: ${{ env.TF_WORKING_DIR }}
 
     steps:
 
-      # 1. Checkout
+      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -42,8 +42,8 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume:   arn:aws:iam::434097521299:role/testingdummy  
-          aws-region: ap-south-1
+          role-to-assume: arn:aws:iam::434097521299:role/testingdummy
+          aws-region: ap-south-1  
 
       # 4. Check AWS identity
       - name: Check AWS identity
@@ -51,7 +51,7 @@ jobs:
 
       # 5. Terraform Format
       - name: Terraform Format Check
-        run: terraform fmt -check 
+        run: terraform fmt -check -recursive
 
       # 6. Terraform Init
       - name: Terraform Init
@@ -92,4 +92,4 @@ jobs:
                 "az": "ap-south-1b"
               }
             }
-        run: terraform apply -auto-approve -input=false     
+        run: terraform apply -auto-approve -input=false    
