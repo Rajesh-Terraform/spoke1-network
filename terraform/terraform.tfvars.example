@@ -1,0 +1,26 @@
+aws_region            = "ap-south-1"
+spoke_vpc_name        = "spoke1-network"
+spoke_vpc_cidr        = "10.1.0.0/16"
+hub_vpc_cidr          = "10.0.0.0/16"
+transit_gateway_id    = "tgw-REPLACE_WITH_HUB_OUTPUT"
+ram_resource_share_arn = "arn:aws:ram:ap-south-1:111122223333:resource-share/REPLACE_WITH_HUB_OUTPUT"
+accept_ram_share_invitation = true
+
+subnets = {
+  private_a = {
+    cidr_block        = "10.1.0.0/24"
+    availability_zone = "ap-south-1a"
+    public            = false
+  }
+  private_b = {
+    cidr_block        = "10.1.1.0/24"
+    availability_zone = "ap-south-1b"
+    public            = false
+  }
+}
+
+tags = {
+  Environment = "dev"
+  ManagedBy   = "Terraform"
+  Network     = "spoke1"
+}  

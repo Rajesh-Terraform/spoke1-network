@@ -1,0 +1,59 @@
+name: Terraform AWS CI-CD
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  TF_WORKING_DIR: terraform
+
+jobs:
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      # 1. Checkout
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Setup Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # 3. Terraform Format
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      # 4. Terraform Init
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      # 5. Terraform Validate
+      - name: Terraform Validate
+        run: terraform validate
+
+      # 6. Terraform Plan
+      - name: Terraform Plan
+        run: terraform plan -input=false
+
+      # 7. Terraform Apply
+      - name: Terraform Apply
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve -input=false  
