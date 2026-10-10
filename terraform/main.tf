@@ -5,7 +5,7 @@ module "spoke_vpc" {
   cidr_block         = var.spoke_vpc_cidr
   subnets            = var.subnets
   enable_nat_gateway = false
-  tags               = var.tags
+  tags               = var.tags 
 }
 
 resource "aws_ram_resource_share_accepter" "transit_gateway" {

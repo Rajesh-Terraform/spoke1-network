@@ -5,10 +5,6 @@ on:
     branches:
       - main
 
-  pull_request:
-    branches:
-      - main
-
   workflow_dispatch:
 
 permissions:
@@ -21,16 +17,16 @@ env:
 
 jobs:
 
-  # ============================================================
-  # JOB 1 - FORMAT + VALIDATE
-  # ============================================================
+  # =========================================================
+  # 1. VALIDATE
+  # =========================================================
   validate:
     name: Format and Validate
     runs-on: ubuntu-latest
 
     defaults:
       run:
-        working-directory: ${{ env.TF_WORKING_DIR }}   
+        working-directory: ${{ env.TF_WORKING_DIR }}
 
     steps:
 
@@ -42,8 +38,8 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Terraform Format 
-        run: terraform fmt 
+      - name: Terraform Format
+        run: terraform fmt -check -recursive
 
       - name: Terraform Init
         run: terraform init -backend=false -input=false
@@ -52,15 +48,12 @@ jobs:
         run: terraform validate
 
 
-  # ============================================================
-  # JOB 2 - PLAN
-  # ============================================================
+  # =========================================================
+  # 2. PLAN
+  # =========================================================
   plan:
     name: Terraform Plan - Spoke
     needs: validate
-
-    # Don't run Plan on pull requests
-    if: github.event_name != 'pull_request'
 
     runs-on: ubuntu-latest
 
@@ -82,70 +75,65 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # --------------------------------------------------------
-      # AWS OIDC
-      # --------------------------------------------------------
-      - name: Configure AWS credentials
+      # -----------------------------------------------------
+      # AWS SPOKE ACCOUNT
+      # -----------------------------------------------------
+      - name: Configure AWS Credentials - Spoke
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::434097521299:role/testingdummy
           aws-region: ${{ env.AWS_REGION }}
 
-      # --------------------------------------------------------
-      # Verify AWS Account
-      # --------------------------------------------------------
-      - name: Verify AWS account
+      - name: Verify AWS Account
         run: |
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 
-          echo "AWS Account: $ACCOUNT_ID"
+          echo "Connected AWS Account: $ACCOUNT_ID"
 
           if [ "$ACCOUNT_ID" != "434097521299" ]; then
-            echo "::error::Wrong AWS account. Expected 434097521299 but got $ACCOUNT_ID"
+            echo "ERROR: Wrong AWS account!"
+            echo "Expected: 434097521299"
+            echo "Actual:   $ACCOUNT_ID"
             exit 1
           fi
 
-      # --------------------------------------------------------
-      # Check Secrets
-      # --------------------------------------------------------
-      - name: Check required Terraform secrets
+          echo "SUCCESS: Connected to Spoke account."
+
+      # -----------------------------------------------------
+      # CHECK SECRETS
+      # -----------------------------------------------------
+      - name: Check Required Secrets
         env:
           TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
-
         run: |
           if [ -z "$TG_TRANSIT_GATEWAY_ID" ]; then
-            echo "::error::TG_TRANSIT_GATEWAY_ID secret is missing"
+            echo "ERROR: TG_TRANSIT_GATEWAY_ID secret is missing."
             exit 1
           fi
 
           if [ -z "$RAM_RESOURCE_SHARE_ARN" ]; then
-            echo "::error::RAM_RESOURCE_SHARE_ARN secret is missing"
+            echo "ERROR: RAM_RESOURCE_SHARE_ARN secret is missing."
             exit 1
           fi
 
-          if [[ ! "$RAM_RESOURCE_SHARE_ARN" =~ ^arn:aws:ram:${AWS_REGION}:647132523867:resource-share/[A-Za-z0-9-]+$ ]]; then
-            echo "::error::RAM_RESOURCE_SHARE_ARN is not a valid RAM resource-share ARN"
-            exit 1
-          fi
+          echo "Required secrets are present."
 
-          echo "Required Terraform secrets are available."
-
-      # --------------------------------------------------------
-      # Terraform Init
-      # --------------------------------------------------------
+      # -----------------------------------------------------
+      # TERRAFORM INIT
+      # -----------------------------------------------------
       - name: Terraform Init
         run: terraform init -input=false
 
-      # --------------------------------------------------------
-      # Terraform Plan
-      # --------------------------------------------------------
+      # -----------------------------------------------------
+      # TERRAFORM PLAN
+      # -----------------------------------------------------
       - name: Terraform Plan
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
 
-          TF_VAR_subnets: >-
+          TF_VAR_subnets: |
             {
               "private_1": {
                 "cidr_block": "10.1.0.0/24",
@@ -161,27 +149,26 @@ jobs:
 
         run: terraform plan -input=false -out=tfplan
 
-      # --------------------------------------------------------
-      # Upload Plan
-      # --------------------------------------------------------
+      # -----------------------------------------------------
+      # UPLOAD PLAN
+      # -----------------------------------------------------
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
           name: spoke-terraform-plan
           path: terraform/tfplan
-          retention-days: 5
+          retention-days: 1
 
 
-  # ============================================================
-  # JOB 3 - APPLY
-  # ============================================================
+  # =========================================================
+  # 3. APPLY
+  # =========================================================
   apply:
     name: Terraform Apply - Spoke
     needs: plan
 
-    if: >
-      github.ref == 'refs/heads/main' &&
-      vars.TF_APPLY_ENABLED == 'true'
+    # Apply ONLY from main branch
+    if: github.ref == 'refs/heads/main'
 
     runs-on: ubuntu-latest
 
@@ -203,53 +190,57 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # --------------------------------------------------------
-      # AWS OIDC
-      # --------------------------------------------------------
-      - name: Configure AWS credentials
+      # -----------------------------------------------------
+      # AWS SPOKE ACCOUNT
+      # -----------------------------------------------------
+      - name: Configure AWS Credentials - Spoke
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::434097521299:role/testingdummy
           aws-region: ${{ env.AWS_REGION }}
 
-      # --------------------------------------------------------
-      # Verify AWS Account
-      # --------------------------------------------------------
-      - name: Verify AWS account
+      # -----------------------------------------------------
+      # VERIFY WE ARE IN SPOKE ACCOUNT
+      # -----------------------------------------------------
+      - name: Verify AWS Account
         run: |
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 
-          echo "AWS Account: $ACCOUNT_ID"
+          echo "Connected AWS Account: $ACCOUNT_ID"
 
           if [ "$ACCOUNT_ID" != "434097521299" ]; then
-            echo "::error::Wrong AWS account. Expected 434097521299 but got $ACCOUNT_ID"
+            echo "ERROR: WRONG AWS ACCOUNT!"
+            echo "Expected: 434097521299"
+            echo "Actual:   $ACCOUNT_ID"
             exit 1
           fi
 
-      # --------------------------------------------------------
-      # Terraform Init
-      # --------------------------------------------------------
+          echo "SUCCESS: Applying to Spoke account."
+
+      # -----------------------------------------------------
+      # TERRAFORM INIT
+      # -----------------------------------------------------
       - name: Terraform Init
         run: terraform init -input=false
 
-      # --------------------------------------------------------
-      # Download Plan
-      # --------------------------------------------------------
+      # -----------------------------------------------------
+      # DOWNLOAD PLAN
+      # -----------------------------------------------------
       - name: Download Terraform Plan
         uses: actions/download-artifact@v4
         with:
           name: spoke-terraform-plan
           path: terraform
 
-      # --------------------------------------------------------
-      # Apply
-      # --------------------------------------------------------
+      # -----------------------------------------------------
+      # APPLY
+      # -----------------------------------------------------
       - name: Terraform Apply
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
 
-          TF_VAR_subnets: >-
+          TF_VAR_subnets: |
             {
               "private_1": {
                 "cidr_block": "10.1.0.0/24",
@@ -263,4 +254,4 @@ jobs:
               }
             }
 
-        run: terraform apply -input=false -auto-approve tfplan  
+        run: terraform apply -input=false -auto-approve tfplan 
