@@ -36,9 +36,9 @@ variable "ram_resource_share_arn" {
 }
 
 variable "accept_ram_share_invitation" {
-  description = "Accept a RAM invitation; set false for shares auto-accepted through AWS Organizations"
+  description = "Accept a pending RAM invitation; set false when the share is auto-accepted or already accepted"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "hub_vpc_cidr" {

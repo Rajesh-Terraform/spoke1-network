@@ -24,7 +24,7 @@ transit_gateway_id = "REPLACE_WITH_TGW_ID"
 
 ram_resource_share_arn = "REPLACE_WITH_RAM_SHARE_ARN"
 
-accept_ram_share_invitation = true
+accept_ram_share_invitation = false
 
 interface_endpoint_services = [
   "ssm",

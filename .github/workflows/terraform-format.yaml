@@ -132,6 +132,7 @@ jobs:
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
+          TF_VAR_accept_ram_share_invitation: "false"
 
           TF_VAR_subnets: |
             {
@@ -239,6 +240,7 @@ jobs:
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
+          TF_VAR_accept_ram_share_invitation: "false"
 
           TF_VAR_subnets: |
             {
