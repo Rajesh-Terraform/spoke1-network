@@ -119,6 +119,22 @@ jobs:
 
           echo "Required secrets are present."
 
+      - name: Verify shared Transit Gateway is available
+        env:
+          TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
+        run: |
+          TGW_DETAILS="$(aws ec2 describe-transit-gateways \
+            --transit-gateway-ids "$TG_TRANSIT_GATEWAY_ID" \
+            --region "$AWS_REGION" \
+            --query 'TransitGateways[0].[State,OwnerId]' \
+            --output text)"
+
+          read -r TGW_STATE TGW_OWNER <<< "$TGW_DETAILS"
+          if [ "$TGW_STATE" != "available" ] || [ "$TGW_OWNER" != "647132523867" ]; then
+            echo "::error::The configured shared Transit Gateway must be available and owned by hub account 647132523867. Current state: $TGW_STATE; owner: $TGW_OWNER. Recreate or restore the hub Transit Gateway, then update TG_TRANSIT_GATEWAY_ID and RAM_RESOURCE_SHARE_ARN in the spoke repository."
+            exit 1
+          fi
+
       # -----------------------------------------------------
       # TERRAFORM INIT
       # -----------------------------------------------------
@@ -217,6 +233,22 @@ jobs:
           fi
 
           echo "SUCCESS: Applying to Spoke account."
+
+      - name: Verify shared Transit Gateway is available
+        env:
+          TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
+        run: |
+          TGW_DETAILS="$(aws ec2 describe-transit-gateways \
+            --transit-gateway-ids "$TG_TRANSIT_GATEWAY_ID" \
+            --region "$AWS_REGION" \
+            --query 'TransitGateways[0].[State,OwnerId]' \
+            --output text)"
+
+          read -r TGW_STATE TGW_OWNER <<< "$TGW_DETAILS"
+          if [ "$TGW_STATE" != "available" ] || [ "$TGW_OWNER" != "647132523867" ]; then
+            echo "::error::The configured shared Transit Gateway must be available and owned by hub account 647132523867. Current state: $TGW_STATE; owner: $TGW_OWNER. Recreate or restore the hub Transit Gateway, then update TG_TRANSIT_GATEWAY_ID and RAM_RESOURCE_SHARE_ARN in the spoke repository."
+            exit 1
+          fi
 
       # -----------------------------------------------------
       # TERRAFORM INIT
