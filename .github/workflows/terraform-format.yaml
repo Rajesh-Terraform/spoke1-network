@@ -43,7 +43,7 @@ jobs:
   plan:
     name: Plan in spoke account
     needs: validate
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' 
     runs-on: ubuntu-latest
     permissions:
       contents: read
