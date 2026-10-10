@@ -47,4 +47,4 @@ module "vpc_endpoints" {
   private_route_table_ids     = module.spoke_vpc.private_route_table_ids
   interface_endpoint_services = var.interface_endpoint_services
   tags                        = var.tags
-}  
+}

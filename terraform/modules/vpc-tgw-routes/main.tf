@@ -1,7 +1,7 @@
 resource "aws_route" "this" {
-  for_each = toset(var.route_table_ids)
+  count = length(var.route_table_ids)
 
-  route_table_id         = each.value
+  route_table_id         = var.route_table_ids[count.index]
   destination_cidr_block = var.destination_cidr
   transit_gateway_id     = var.transit_gateway_id
 }
