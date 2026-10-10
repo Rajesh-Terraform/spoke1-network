@@ -43,7 +43,7 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Terraform Format Check
-        run: terraform fmt 
+        run: terraform fmt -check -recursive
 
       - name: Terraform Init
         run: terraform init -backend=false -input=false
@@ -59,6 +59,7 @@ jobs:
     name: Terraform Plan - Spoke
     needs: validate
 
+    # Don't run Plan on pull requests
     if: github.event_name != 'pull_request'
 
     runs-on: ubuntu-latest
@@ -95,9 +96,7 @@ jobs:
       # --------------------------------------------------------
       - name: Verify AWS account
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity 
-            --query Account 
-            --output text)
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 
           echo "AWS Account: $ACCOUNT_ID"
 
@@ -113,6 +112,7 @@ jobs:
         env:
           TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
+
         run: |
           if [ -z "$TG_TRANSIT_GATEWAY_ID" ]; then
             echo "::error::TG_TRANSIT_GATEWAY_ID secret is missing"
@@ -125,7 +125,7 @@ jobs:
           fi
 
           if [[ ! "$RAM_RESOURCE_SHARE_ARN" =~ ^arn:aws:ram:${AWS_REGION}:647132523867:resource-share/[A-Za-z0-9-]+$ ]]; then
-            echo "::error::RAM_RESOURCE_SHARE_ARN is not a valid RAM resource-share ARN for the hub account and region. Set it to the exact hub Terraform output: terraform output -raw ram_resource_share_arn"
+            echo "::error::RAM_RESOURCE_SHARE_ARN is not a valid RAM resource-share ARN"
             exit 1
           fi
 
@@ -159,10 +159,7 @@ jobs:
               }
             }
 
-        run: |
-          terraform plan 
-            -input=false 
-            -out=tfplan
+        run: terraform plan -input=false -out=tfplan
 
       # --------------------------------------------------------
       # Upload Plan
@@ -204,7 +201,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}   
+          terraform_version: ${{ env.TF_VERSION }}
 
       # --------------------------------------------------------
       # AWS OIDC
@@ -220,11 +217,9 @@ jobs:
       # --------------------------------------------------------
       - name: Verify AWS account
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity 
-            --query Account 
-            --output text)
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 
-          echo "AWS Account: $ACCOUNT_ID"  
+          echo "AWS Account: $ACCOUNT_ID"
 
           if [ "$ACCOUNT_ID" != "434097521299" ]; then
             echo "::error::Wrong AWS account. Expected 434097521299 but got $ACCOUNT_ID"
@@ -252,7 +247,7 @@ jobs:
       - name: Terraform Apply
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
-          TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}  
+          TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
 
           TF_VAR_subnets: >-
             {
@@ -268,8 +263,4 @@ jobs:
               }
             }
 
-        run: |
-          terraform apply 
-            -input=false 
-            -auto-approve 
-            tfplan     
+        run: terraform apply -input=false -auto-approve tfplan  
