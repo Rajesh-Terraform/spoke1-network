@@ -123,15 +123,18 @@ jobs:
         env:
           TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
         run: |
-          TGW_DETAILS="$(aws ec2 describe-transit-gateways \
+          if ! TGW_DETAILS="$(aws ec2 describe-transit-gateways \
             --transit-gateway-ids "$TG_TRANSIT_GATEWAY_ID" \
             --region "$AWS_REGION" \
             --query 'TransitGateways[0].[State,OwnerId]' \
-            --output text)"
+            --output text 2>/dev/null)"; then
+            echo "::error::AWS could not find the Transit Gateway configured in TG_TRANSIT_GATEWAY_ID. Confirm the hub apply created a new Transit Gateway, then update TG_TRANSIT_GATEWAY_ID and RAM_RESOURCE_SHARE_ARN in the spoke repository with the latest hub Terraform outputs."
+            exit 1
+          fi
 
           read -r TGW_STATE TGW_OWNER <<< "$TGW_DETAILS"
           if [ "$TGW_STATE" != "available" ] || [ "$TGW_OWNER" != "647132523867" ]; then
-            echo "::error::The configured shared Transit Gateway must be available and owned by hub account 647132523867. Current state: $TGW_STATE; owner: $TGW_OWNER. Recreate or restore the hub Transit Gateway, then update TG_TRANSIT_GATEWAY_ID and RAM_RESOURCE_SHARE_ARN in the spoke repository."
+            echo "::error::The configured shared Transit Gateway must be available and owned by hub account 647132523867. Current state: $TGW_STATE; owner: $TGW_OWNER. Complete the hub apply and update both spoke repository secrets with the latest hub Terraform outputs."
             exit 1
           fi
 
@@ -238,15 +241,18 @@ jobs:
         env:
           TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
         run: |
-          TGW_DETAILS="$(aws ec2 describe-transit-gateways \
+          if ! TGW_DETAILS="$(aws ec2 describe-transit-gateways \
             --transit-gateway-ids "$TG_TRANSIT_GATEWAY_ID" \
             --region "$AWS_REGION" \
             --query 'TransitGateways[0].[State,OwnerId]' \
-            --output text)"
+            --output text 2>/dev/null)"; then
+            echo "::error::AWS could not find the Transit Gateway configured in TG_TRANSIT_GATEWAY_ID. Confirm the hub apply created a new Transit Gateway, then update TG_TRANSIT_GATEWAY_ID and RAM_RESOURCE_SHARE_ARN in the spoke repository with the latest hub Terraform outputs."
+            exit 1
+          fi
 
           read -r TGW_STATE TGW_OWNER <<< "$TGW_DETAILS"
           if [ "$TGW_STATE" != "available" ] || [ "$TGW_OWNER" != "647132523867" ]; then
-            echo "::error::The configured shared Transit Gateway must be available and owned by hub account 647132523867. Current state: $TGW_STATE; owner: $TGW_OWNER. Recreate or restore the hub Transit Gateway, then update TG_TRANSIT_GATEWAY_ID and RAM_RESOURCE_SHARE_ARN in the spoke repository."
+            echo "::error::The configured shared Transit Gateway must be available and owned by hub account 647132523867. Current state: $TGW_STATE; owner: $TGW_OWNER. Complete the hub apply and update both spoke repository secrets with the latest hub Terraform outputs."
             exit 1
           fi
 
