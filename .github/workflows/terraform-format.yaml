@@ -30,7 +30,7 @@ jobs:
 
     steps:
 
-      # 1. Checkout
+      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -43,30 +43,40 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::434097521299:role/testingdummy
-          aws-region: ap-south-1
+          aws-region: ${{ env.AWS_REGION }}
 
       # 4. Check AWS identity
       - name: Check AWS identity
+        working-directory: .
         run: aws sts get-caller-identity
 
-      # 5. Terraform Format
-      - name: Terraform Format Check
-        run: terraform fmt 
+      # 5. Check Terraform files and modules
+      - name: Check Terraform modules
+        working-directory: .
+        run: |
+          echo "Terraform directory:"
+          ls -la terraform
 
-      # 6. Terraform Init
+          echo "Modules:"
+          find terraform/modules -maxdepth 2 -type f | sort
+
+      # 6. Terraform Format Check
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      # 7. Terraform Init
       - name: Terraform Init
         run: terraform init -input=false
 
-      # 7. Terraform Validate
+      # 8. Terraform Validate
       - name: Terraform Validate
         run: terraform validate
 
-      # 8. Terraform Plan
+      # 9. Terraform Plan
       - name: Terraform Plan
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
-
           TF_VAR_subnets: |
             {
               "private_1": {
@@ -78,16 +88,14 @@ jobs:
                 "az": "ap-south-1b"
               }
             }
+        run: terraform plan -input=false -out=tfplan
 
-        run: terraform plan -input=false
-         
-      # 9. Terraform Apply
+      # 10. Terraform Apply
       - name: Terraform Apply
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
-
           TF_VAR_subnets: |
             {
               "private_1": {
@@ -99,5 +107,4 @@ jobs:
                 "az": "ap-south-1b"
               }
             }
-
-        run: terraform apply -auto-approve -input=false                
+        run: terraform apply -input=false -auto-approve tfplan   
