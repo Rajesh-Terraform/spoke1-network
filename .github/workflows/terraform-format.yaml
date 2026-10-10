@@ -80,7 +80,7 @@ jobs:
       - name: Check required Terraform secrets
         env:
           TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
-          RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}  
+          RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}    
         run: |
           if [ -z "$TG_TRANSIT_GATEWAY_ID" ]; then
             echo "::error::Repository secret TG_TRANSIT_GATEWAY_ID is not set."
