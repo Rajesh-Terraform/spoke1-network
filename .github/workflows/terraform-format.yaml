@@ -124,6 +124,11 @@ jobs:
             exit 1
           fi
 
+          if [[ ! "$RAM_RESOURCE_SHARE_ARN" =~ ^arn:aws:ram:${AWS_REGION}:647132523867:resource-share/[A-Za-z0-9-]+$ ]]; then
+            echo "::error::RAM_RESOURCE_SHARE_ARN is not a valid RAM resource-share ARN for the hub account and region. Set it to the exact hub Terraform output: terraform output -raw ram_resource_share_arn"
+            exit 1
+          fi
+
           echo "Required Terraform secrets are available."
 
       # --------------------------------------------------------
@@ -199,7 +204,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
+          terraform_version: ${{ env.TF_VERSION }}   
 
       # --------------------------------------------------------
       # AWS OIDC
@@ -219,7 +224,7 @@ jobs:
             --query Account \
             --output text)
 
-          echo "AWS Account: $ACCOUNT_ID"
+          echo "AWS Account: $ACCOUNT_ID"  
 
           if [ "$ACCOUNT_ID" != "434097521299" ]; then
             echo "::error::Wrong AWS account. Expected 434097521299 but got $ACCOUNT_ID"
