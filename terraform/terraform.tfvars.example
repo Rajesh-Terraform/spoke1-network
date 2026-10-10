@@ -8,15 +8,15 @@ aws_region = "ap-south-1"
 
 subnets = {
   private_1 = {
-    cidr_block = "10.1.0.0/24"
-    az         = "ap-south-1a"
-    type       = "private"
+    cidr_block        = "10.1.0.0/24"
+    availability_zone = "ap-south-1a"
+    public            = false
   }
 
   private_2 = {
-    cidr_block = "10.1.1.0/24"
-    az         = "ap-south-1b"
-    type       = "private"
+    cidr_block        = "10.1.1.0/24"
+    availability_zone = "ap-south-1b"
+    public            = false
   }
 }
 

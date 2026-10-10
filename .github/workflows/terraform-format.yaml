@@ -1,81 +1,97 @@
-name: Terraform AWS CI-CD
+name: Spoke Terraform
 
 on:
   push:
     branches:
       - main
-
   pull_request:
     branches:
       - main
-
   workflow_dispatch:
 
 permissions:
-  id-token: write
   contents: read
 
 env:
   AWS_REGION: ap-south-1
-  TF_WORKING_DIR: terraform
 
 jobs:
-  terraform:
-    name: Terraform
+  validate:
+    name: Format and validate
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: terraform
-
     steps:
-
-      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.4
 
-      # 3. Configure AWS using GitHub OIDC
-      - name: Configure AWS credentials
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive
+
+      - name: Initialize Terraform without backend
+        run: terraform init -backend=false -input=false
+
+      - name: Validate Terraform
+        run: terraform validate
+
+  plan:
+    name: Plan in spoke account
+    needs: validate
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.4
+
+      - name: Configure AWS credentials in spoke account
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::434097521299:role/testingdummy
           aws-region: ${{ env.AWS_REGION }}
 
-      # 4. Check AWS identity
-      - name: Check AWS identity
-        working-directory: .
+      - name: Verify AWS account
         run: |
-          aws sts get-caller-identity
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$account_id" != "434097521299" ]; then
+            echo "Expected spoke account 434097521299, got $account_id" >&2
+            exit 1
+          fi
 
-      # 5. Check Terraform structure
-      - name: Check Terraform files
-        working-directory: .
-        run: |
-          echo "===== Terraform directory ====="
-          find terraform -maxdepth 3 -type f | sort
-
-          echo ""
-          echo "===== Terraform modules ====="
-          find terraform/modules -maxdepth 3 -type f | sort
-
-      # 6. Terraform Format
-      - name: Terraform Format Check
-        run: terraform fmt 
-
-      # 7. Terraform Init
-      - name: Terraform Init
+      - name: Initialize Terraform
         run: terraform init -input=false
 
-      # 8. Terraform Validate
-      - name: Terraform Validate
-        run: terraform validate
+      - name: Check required Terraform secrets
+        env:
+          TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
+          RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}  
+        run: |
+          if [ -z "$TG_TRANSIT_GATEWAY_ID" ]; then
+            echo "::error::Repository secret TG_TRANSIT_GATEWAY_ID is not set."
+            exit 1
+          fi
+          if [ -z "$RAM_RESOURCE_SHARE_ARN" ]; then
+            echo "::error::Repository secret RAM_RESOURCE_SHARE_ARN is not set."
+            exit 1
+          fi
 
-      # 9. Terraform Plan
-      - name: Terraform Plan
+      - name: Plan Terraform changes
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
@@ -83,23 +99,21 @@ jobs:
             {
               "private_1": {
                 "cidr_block": "10.1.0.0/24",
-                "az": "ap-south-1a"
+                "availability_zone": "ap-south-1a",
+                "public": false
               },
               "private_2": {
                 "cidr_block": "10.1.1.0/24",
-                "az": "ap-south-1b"
+                "availability_zone": "ap-south-1b",
+                "public": false
               }
             }
-        run: |
-          terraform plan \
-            -input=false \
-            -out=tfplan
+        run: terraform plan -input=false -out=tfplan
 
-      # 10. Terraform Apply
-      - name: Terraform Apply
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          terraform apply \
-            -input=false \
-            -auto-approve \
-            tfplan  
+      - name: Apply Terraform changes
+        if: github.ref == 'refs/heads/main' && vars.TF_APPLY_ENABLED == 'true'
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Keep apply disabled until explicitly enabled
+        if: github.ref == 'refs/heads/main' && vars.TF_APPLY_ENABLED != 'true'
+        run: echo "Terraform apply skipped. Set the repository variable TF_APPLY_ENABLED to true after reviewing the plan and confirming state is reconciled."

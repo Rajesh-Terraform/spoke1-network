@@ -2,19 +2,20 @@
 
 # Spoke 1 Network
 
-This repository has one Terraform root at its top level and creates the spoke network foundation through phase 4:
+The Terraform root is in `terraform/` and creates the spoke network foundation through phase 4:
 
-- `modules/vpc`: private spoke VPC, subnets, route tables, and associations. NAT is disabled by default.
-- `modules/transit-gateway-attachment`: spoke VPC attachment to the shared hub TGW.
-- `modules/vpc-tgw-routes`: routes spoke private subnet traffic to the hub through the TGW.
-- `modules/vpc-endpoints`: interface endpoints for AWS services and an S3 gateway endpoint.
+- `terraform/modules/vpc`: private spoke VPC, subnets, route tables, and associations. NAT is disabled by default.
+- `terraform/modules/transit-gateway-attachment`: spoke VPC attachment to the shared hub TGW.
+- `terraform/modules/vpc-tgw-routes`: routes spoke private subnet traffic to the hub through the TGW.
+- `terraform/modules/vpc-endpoints`: interface endpoints for AWS services and an S3 gateway endpoint.
 
 ## Deployment
 
-1. Copy `terraform.tfvars.example` to `terraform.tfvars`; set `transit_gateway_id` and `ram_resource_share_arn` from the hub outputs, and review CIDRs, AZs, and the RAM invitation setting.
-2. Configure this repository's S3 backend and state locking before using remote state. Backend configuration is intentionally not hard-coded yet.
-3. Run `terraform init`, `terraform plan`, and `terraform apply` from this directory.
+1. Copy `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars`; set `transit_gateway_id` and `ram_resource_share_arn` from the hub outputs, and review CIDRs, AZs, and the RAM invitation setting.
+2. Confirm the S3 bucket configured in `terraform/backend.tf` exists and that your AWS identity can read and write the state object and use its lock file.
+3. Run `terraform init`, `terraform plan`, and `terraform apply` from `terraform/`.
 4. Provide `spoke_transit_gateway_attachment_id` from `terraform output` to the hub root, then apply the hub root again to complete TGW routing.
+5. For GitHub Actions, configure repository secrets `TG_TRANSIT_GATEWAY_ID` and `RAM_RESOURCE_SHARE_ARN`. The workflow assumes `arn:aws:iam::434097521299:role/testingdummy` through GitHub OIDC; configure that role's trust policy for this repository and grant it the required spoke-resource permissions plus access to the S3 state bucket and state lock file. Pull requests run format and validation checks only. Pushes to `main` and manual runs create a plan; applying requires the repository variable `TF_APPLY_ENABLED` to be set to `true`.
 
 For accounts in the same AWS Organization, RAM shares are normally auto-accepted; set `accept_ram_share_invitation = false` in that case. For an account outside the Organization, enable external principals in the hub and accept the invitation here.
 
