@@ -40,4 +40,4 @@ resource "aws_vpc_endpoint" "s3" {
   tags = merge(var.tags, {
     Name = "${var.name}-s3-endpoint"
   })
-}   
+}     
