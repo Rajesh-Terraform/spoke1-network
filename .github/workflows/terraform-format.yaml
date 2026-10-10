@@ -95,8 +95,8 @@ jobs:
       # --------------------------------------------------------
       - name: Verify AWS account
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity \
-            --query Account \
+          ACCOUNT_ID=$(aws sts get-caller-identity 
+            --query Account 
             --output text)
 
           echo "AWS Account: $ACCOUNT_ID"
@@ -160,8 +160,8 @@ jobs:
             }
 
         run: |
-          terraform plan \
-            -input=false \
+          terraform plan 
+            -input=false 
             -out=tfplan
 
       # --------------------------------------------------------
@@ -220,8 +220,8 @@ jobs:
       # --------------------------------------------------------
       - name: Verify AWS account
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity \
-            --query Account \
+          ACCOUNT_ID=$(aws sts get-caller-identity 
+            --query Account 
             --output text)
 
           echo "AWS Account: $ACCOUNT_ID"  
@@ -252,7 +252,7 @@ jobs:
       - name: Terraform Apply
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
-          TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
+          TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}  
 
           TF_VAR_subnets: >-
             {
@@ -269,7 +269,7 @@ jobs:
             }
 
         run: |
-          terraform apply \
-            -input=false \
-            -auto-approve \
+          terraform apply 
+            -input=false 
+            -auto-approve 
             tfplan     
