@@ -1,17 +1,15 @@
 
 name: Spoke Terraform Destroy
 
-
 on:
   push:
     branches:
       - main
 
-
   workflow_dispatch:
     inputs:
       confirm_destroy:
-        description: "Type DESTROY to confirm deletion of spoke infrastructure"
+        description: "Type DESTROY to delete spoke infrastructure and VPC endpoints"
         required: true
         type: string
 
@@ -25,15 +23,16 @@ concurrency:
 
 env:
   AWS_REGION: ap-south-1
-  TF_WORKING_DIR: terraform
   TF_VERSION: "1.13.4"
 
 jobs:
   destroy:
-    name: Destroy Spoke Infrastructure
+    name: Destroy Spoke VPC and Endpoints
     runs-on: ubuntu-latest
 
-    if: ${{ inputs.confirm_destroy == 'DESTROY' }}
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      inputs.confirm_destroy == 'DESTROY'
 
     defaults:
       run:
@@ -41,22 +40,32 @@ jobs:
         working-directory: terraform
 
     steps:
+      # --------------------------------------------------
+      # STEP 1: CHECKOUT REPOSITORY
+      # --------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # --------------------------------------------------
+      # STEP 2: INSTALL TERRAFORM
+      # --------------------------------------------------
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # Authenticate to the Spoke AWS account using OIDC
+      # --------------------------------------------------
+      # STEP 3: AUTHENTICATE TO SPOKE AWS ACCOUNT
+      # --------------------------------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::434097521299:role/testingdummy
           aws-region: ${{ env.AWS_REGION }}
 
-      # Verify the AWS account before deleting anything
+      # --------------------------------------------------
+      # STEP 4: VERIFY AWS ACCOUNT
+      # --------------------------------------------------
       - name: Verify AWS account
         run: |
           set -euo pipefail
@@ -72,7 +81,9 @@ jobs:
             exit 1
           fi
 
-      # Confirm the destructive action
+      # --------------------------------------------------
+      # STEP 5: VERIFY CONFIRMATION
+      # --------------------------------------------------
       - name: Confirm destroy request
         env:
           CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
@@ -80,17 +91,27 @@ jobs:
           set -euo pipefail
 
           if [[ "$CONFIRM_DESTROY" != "DESTROY" ]]; then
-            echo "::error::You must type DESTROY to continue."
+            echo "::error::Confirmation must be DESTROY."
             exit 1
           fi
 
           echo "Destroy confirmation accepted."
 
-      # Initialize Terraform
+      # --------------------------------------------------
+      # STEP 6: INITIALIZE TERRAFORM
+      # --------------------------------------------------
       - name: Terraform Init
         run: terraform init -input=false
 
-      # Show the resources Terraform plans to destroy
+      # --------------------------------------------------
+      # STEP 7: VALIDATE TERRAFORM CONFIGURATION
+      # --------------------------------------------------
+      - name: Terraform Validate
+        run: terraform validate
+
+      # --------------------------------------------------
+      # STEP 8: GENERATE DESTROY PLAN
+      # --------------------------------------------------
       - name: Terraform Destroy Plan
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
@@ -111,7 +132,19 @@ jobs:
             }
         run: terraform plan -destroy -input=false -out=destroy.tfplan
 
-      # Destroy the spoke resources
+      # --------------------------------------------------
+      # STEP 9: UPLOAD DESTROY PLAN
+      # --------------------------------------------------
+      - name: Upload Destroy Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: spoke-destroy-plan
+          path: terraform/destroy.tfplan
+          retention-days: 1
+
+      # --------------------------------------------------
+      # STEP 10: APPLY DESTROY PLAN
+      # --------------------------------------------------
       - name: Terraform Destroy
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
@@ -130,4 +163,14 @@ jobs:
                 "public": false
               }
             }
-        run: terraform apply -input=false -auto-approve destroy.tfplan    
+        run: terraform apply -input=false -auto-approve destroy.tfplan
+
+      # --------------------------------------------------
+      # STEP 11: REPORT COMPLETION
+      # --------------------------------------------------
+      - name: Destroy completed
+        if: success()
+        run: |
+          echo "Terraform destroy completed successfully."
+          echo "Check the AWS VPC console to verify endpoint deletion." 
+  
