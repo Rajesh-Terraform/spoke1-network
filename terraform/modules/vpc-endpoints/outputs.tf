@@ -6,4 +6,4 @@ output "interface_endpoint_ids" {
 output "s3_endpoint_id" {
   description = "S3 gateway endpoint ID"
   value       = aws_vpc_endpoint.s3.id
-}  
+}    
