@@ -1,24 +1,26 @@
-name: Spoke Terraform
+
+name: Spoke Terraform Destroy
+
 
 on:
   push:
     branches:
       - main
 
+
   workflow_dispatch:
     inputs:
-      apply:
-        description: Apply the reviewed Terraform plan to the spoke account
+      confirm_destroy:
+        description: "Type DESTROY to confirm deletion of spoke infrastructure"
         required: true
-        type: boolean
-        default: false
-
+        type: string
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
-  group: spoke-terraform-${{ github.ref }}
+  group: spoke-terraform-destroy
   cancel-in-progress: false
 
 env:
@@ -27,13 +29,11 @@ env:
   TF_VERSION: "1.13.4"
 
 jobs:
-
-  # --------------------------------------------------
-  # JOB 1: TERRAFORM VALIDATE
-  # --------------------------------------------------
-  validate:
-    name: Terraform Format and Validate
+  destroy:
+    name: Destroy Spoke Infrastructure
     runs-on: ubuntu-latest
+
+    if: ${{ inputs.confirm_destroy == 'DESTROY' }}
 
     defaults:
       run:
@@ -49,54 +49,14 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Check Terraform formatting
-        run: terraform fmt -check -recursive
-
-      - name: Initialize Terraform without backend
-        run: terraform init -backend=false -input=false
-
-      - name: Validate Terraform
-        run: terraform validate
-
-
-  # --------------------------------------------------
-  # JOB 2: TERRAFORM PLAN
-  # --------------------------------------------------
-  plan:
-    name: Terraform Plan
-    runs-on: ubuntu-latest
-    needs: validate
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      id-token: write
-
-    defaults:
-      run:
-        shell: bash
-        working-directory: terraform
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      # ----------------------------------------------
-      # Authenticate to Spoke AWS account using OIDC
-      # ----------------------------------------------
+      # Authenticate to the Spoke AWS account using OIDC
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::434097521299:role/testingdummy
           aws-region: ${{ env.AWS_REGION }}
 
-      # ----------------------------------------------
-      # Confirm that GitHub authenticated to Spoke
-      # ----------------------------------------------
+      # Verify the AWS account before deleting anything
       - name: Verify AWS account
         run: |
           set -euo pipefail
@@ -108,121 +68,30 @@ jobs:
           echo "Authenticated AWS account: $ACCOUNT_ID"
 
           if [[ "$ACCOUNT_ID" != "434097521299" ]]; then
-            echo "::error::Incorrect AWS account. Expected Spoke account 434097521299."
+            echo "::error::Incorrect AWS account. Destroy cancelled."
             exit 1
           fi
 
-      # ----------------------------------------------
-      # Check required GitHub repository secrets
-      # ----------------------------------------------
-      - name: Check required secrets
+      # Confirm the destructive action
+      - name: Confirm destroy request
         env:
-          TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
-          RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
+          CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
         run: |
           set -euo pipefail
 
-          if [[ -z "$TG_TRANSIT_GATEWAY_ID" ]]; then
-            echo "::error::Missing TG_TRANSIT_GATEWAY_ID repository secret."
+          if [[ "$CONFIRM_DESTROY" != "DESTROY" ]]; then
+            echo "::error::You must type DESTROY to continue."
             exit 1
           fi
 
-          if [[ -z "$RAM_RESOURCE_SHARE_ARN" ]]; then
-            echo "::error::Missing RAM_RESOURCE_SHARE_ARN repository secret."
-            exit 1
-          fi
+          echo "Destroy confirmation accepted."
 
-          echo "Required repository secrets are configured."
-
-      # ----------------------------------------------
-      # Accept a pending RAM invitation in the spoke account
-      # ----------------------------------------------
-      - name: Accept pending Transit Gateway share
-        env:
-          RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
-          TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
-        run: |
-          set -euo pipefail
-
-          invitations="$(aws ram get-resource-share-invitations \
-            --region "$AWS_REGION" \
-            --resource-share-arns "$RAM_RESOURCE_SHARE_ARN" \
-            --output json)"
-          invitation_arn="$(jq -r --arg share "$RAM_RESOURCE_SHARE_ARN" '
-            [.resourceShareInvitations[]?
-              | select(.resourceShareArn == $share and .status == "PENDING")
-              | .resourceShareInvitationArn][0] // empty
-          ' <<< "$invitations")"
-
-          if [[ -n "$invitation_arn" ]]; then
-            echo "Accepting the pending invitation for the shared Transit Gateway."
-            aws ram accept-resource-share-invitation \
-              --resource-share-invitation-arn "$invitation_arn" \
-              --region "$AWS_REGION" \
-              --output json
-          else
-            pending_shares="$(jq -r '
-              [.resourceShareInvitations[]?
-                | [.resourceShareName, .resourceShareArn, .status]
-                | @tsv]
-              | if length == 0 then "none" else .[] end
-            ' <<< "$invitations")"
-            echo "No pending invitation matched the configured RAM resource share."
-            echo "Pending invitations visible to the spoke account (name, ARN, status):"
-            printf '%s\n' "$pending_shares"
-
-            if TGW_DETAILS="$(aws ec2 describe-transit-gateways \
-              --transit-gateway-ids "$TG_TRANSIT_GATEWAY_ID" \
-              --region "$AWS_REGION" \
-              --query 'TransitGateways[0].[State,OwnerId]' \
-              --output text 2>&1)"; then
-              read -r TGW_STATE TGW_OWNER <<< "$TGW_DETAILS"
-              if [[ "$TGW_STATE" == "available" && "$TGW_OWNER" == "647132523867" ]]; then
-                echo "Shared Transit Gateway is already available in the spoke account."
-                exit 0
-              fi
-              echo "::error::The configured Transit Gateway is visible but not available or is owned by an unexpected account: $TGW_DETAILS"
-            else
-              echo "::error::The configured Transit Gateway is not visible to the spoke account: $TGW_DETAILS"
-            fi
-
-            echo "::error::Update TG_TRANSIT_GATEWAY_ID and RAM_RESOURCE_SHARE_ARN from the current hub Terraform outputs. In the hub account, confirm the RAM principal association for spoke account 434097521299 is ASSOCIATED; an ASSOCIATING status means the spoke still needs a valid pending invitation."
-            exit 1
-          fi
-
-          for attempt in {1..12}; do
-            if TGW_DETAILS="$(aws ec2 describe-transit-gateways \
-              --transit-gateway-ids "$TG_TRANSIT_GATEWAY_ID" \
-              --region "$AWS_REGION" \
-              --query 'TransitGateways[0].[State,OwnerId]' \
-              --output text 2>&1)"; then
-              read -r TGW_STATE TGW_OWNER <<< "$TGW_DETAILS"
-              if [[ "$TGW_STATE" == "available" && "$TGW_OWNER" == "647132523867" ]]; then
-                echo "Shared Transit Gateway is available in the spoke account."
-                exit 0
-              fi
-              echo "Transit Gateway status is '$TGW_STATE' and owner is '$TGW_OWNER'."
-            else
-              echo "Transit Gateway is not visible yet: $TGW_DETAILS"
-            fi
-
-            echo "Waiting for RAM sharing to make the Transit Gateway visible ($attempt/12)."
-            sleep 10
-          done
-
-          echo "::error::Transit Gateway is still unavailable after checking/accepting the RAM share. Verify both hub output secrets and the spoke role permissions for ram:GetResourceShareInvitations, ram:AcceptResourceShareInvitation, and ec2:DescribeTransitGateways."
-          exit 1
-
-      # ----------------------------------------------
       # Initialize Terraform
-      # ----------------------------------------------
       - name: Terraform Init
         run: terraform init -input=false
 
-      # ----------------------------------------------
-      # Create Terraform plan
-      # ----------------------------------------------
-      - name: Terraform Plan
+      # Show the resources Terraform plans to destroy
+      - name: Terraform Destroy Plan
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
@@ -240,123 +109,13 @@ jobs:
                 "public": false
               }
             }
-        run: terraform plan -input=false -out=tfplan
+        run: terraform plan -destroy -input=false -out=destroy.tfplan
 
-      # ----------------------------------------------
-      # Upload the saved plan
-      # ----------------------------------------------
-      - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: spoke-terraform-plan
-          path: terraform/tfplan
-          retention-days: 1
-
-
-  # --------------------------------------------------
-  # JOB 3: TERRAFORM APPLY
-  # --------------------------------------------------
-  apply:
-    name: Terraform Apply
-    runs-on: ubuntu-latest
-    needs: plan
-
-    # Pushes require the repository variable; manual runs require an explicit
-    # input. The environment can add a reviewer approval before deployment.
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      ((github.event_name == 'push' && vars.TF_APPLY_ENABLED == 'true') ||
-       (github.event_name == 'workflow_dispatch' && inputs.apply))
-    environment: spoke-production
-    permissions:
-      contents: read
-      id-token: write
-
-    defaults:
-      run:
-        shell: bash
-        working-directory: terraform  
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      # ----------------------------------------------
-      # Authenticate to Spoke AWS account using OIDC
-      # ----------------------------------------------
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::434097521299:role/testingdummy
-          aws-region: ${{ env.AWS_REGION }}
-
-      # ----------------------------------------------
-      # Verify the AWS account
-      # ----------------------------------------------
-      - name: Verify AWS account
-        run: |
-          set -euo pipefail
-
-          ACCOUNT_ID="$(aws sts get-caller-identity \
-            --query Account \
-            --output text)"
-
-          echo "Authenticated AWS account: $ACCOUNT_ID"
-
-          if [[ "$ACCOUNT_ID" != "434097521299" ]]; then
-            echo "::error::Incorrect AWS account. Expected Spoke account 434097521299."
-            exit 1
-          fi
-
-      # ----------------------------------------------
-      # Check required secrets
-      # ----------------------------------------------
-      - name: Check required secrets
-        env:
-          TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
-          RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
-        run: |
-          set -euo pipefail
-
-          if [[ -z "$TG_TRANSIT_GATEWAY_ID" ]]; then
-            echo "::error::Missing TG_TRANSIT_GATEWAY_ID repository secret."
-            exit 1
-          fi
-
-          if [[ -z "$RAM_RESOURCE_SHARE_ARN" ]]; then
-            echo "::error::Missing RAM_RESOURCE_SHARE_ARN repository secret."
-            exit 1
-          fi
-
-          echo "Required repository secrets are configured."
-
-      # ----------------------------------------------
-      # Initialize Terraform
-      # ----------------------------------------------
-      - name: Terraform Init
-        run: terraform init -input=false
-
-      # ----------------------------------------------
-      # Download the exact plan created by the Plan job
-      # ----------------------------------------------
-      - name: Download Terraform Plan
-        uses: actions/download-artifact@v4
-        with:
-          name: spoke-terraform-plan
-          path: terraform
-
-      # ----------------------------------------------
-      # Apply the saved Terraform plan
-      # ----------------------------------------------
-      - name: Terraform Apply
+      # Destroy the spoke resources
+      - name: Terraform Destroy
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
-          TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}  
+          TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
           TF_VAR_accept_ram_share_invitation: "false"
           TF_VAR_subnets: |
             {
@@ -371,4 +130,4 @@ jobs:
                 "public": false
               }
             }
-        run: terraform apply -input=false -auto-approve tfplan      
+        run: terraform apply -input=false -auto-approve destroy.tfplan  
