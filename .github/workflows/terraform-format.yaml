@@ -136,18 +136,18 @@ jobs:
       # ----------------------------------------------
       - name: Accept pending Transit Gateway share
         env:
-          RAM_RESOURCE_SHARE_ARN: arn:aws:ram:ap-south-1:647132523867:resource-share/401a5739-4281-4776-bd27-117880255f7c 
-          TG_TRANSIT_GATEWAY_ID: arn:aws:ram:ap-south-1:647132523867:resource-share/401a5739-4281-4776-bd27-117880255f7c 
+          RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
+          TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
         run: |
           set -euo pipefail
 
           invitations="$(aws ram get-resource-share-invitations \
             --region "$AWS_REGION" \
-            --status PENDING \
+            --resource-share-arns "$RAM_RESOURCE_SHARE_ARN" \
             --output json)"
           invitation_arn="$(jq -r --arg share "$RAM_RESOURCE_SHARE_ARN" '
             [.resourceShareInvitations[]?
-              | select(.resourceShareArn == $share)
+              | select(.resourceShareArn == $share and .status == "PENDING")
               | .resourceShareInvitationArn][0] // empty
           ' <<< "$invitations")"
 
