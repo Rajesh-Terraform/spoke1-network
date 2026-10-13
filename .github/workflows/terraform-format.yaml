@@ -1,36 +1,35 @@
-
 name: Spoke Terraform Destroy
 
 on:
+
   push:
     branches:
       - main
-
+   
   workflow_dispatch:
     inputs:
       confirm_destroy:
-        description: "Type DESTROY to delete spoke infrastructure and VPC endpoints"
+        description: 'Type DESTROY to confirm deletion of spoke resources'
         required: true
         type: string
 
 permissions:
-  contents: read
   id-token: write
-
-concurrency:
-  group: spoke-terraform-destroy
-  cancel-in-progress: false
+  contents: read
 
 env:
   AWS_REGION: ap-south-1
-  TF_VERSION: "1.13.4"
+  TF_WORKING_DIR: terraform
+  TF_VERSION: 1.13.4
 
 jobs:
   destroy:
     name: Destroy Spoke VPC and Endpoints
     runs-on: ubuntu-latest
 
+    # Run only for a manual dispatch on main with explicit confirmation.
     if: >-
+      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       inputs.confirm_destroy == 'DESTROY'
 
@@ -40,137 +39,65 @@ jobs:
         working-directory: terraform
 
     steps:
-      # --------------------------------------------------
-      # STEP 1: CHECKOUT REPOSITORY
-      # --------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --------------------------------------------------
-      # STEP 2: INSTALL TERRAFORM
-      # --------------------------------------------------
-      - name: Setup Terraform
+      - name: Configure Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # --------------------------------------------------
-      # STEP 3: AUTHENTICATE TO SPOKE AWS ACCOUNT
-      # --------------------------------------------------
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials using OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::434097521299:role/testingdummy
           aws-region: ${{ env.AWS_REGION }}
 
-      # --------------------------------------------------
-      # STEP 4: VERIFY AWS ACCOUNT
-      # --------------------------------------------------
       - name: Verify AWS account
         run: |
-          set -euo pipefail
-
-          ACCOUNT_ID="$(aws sts get-caller-identity \
-            --query Account \
-            --output text)"
-
-          echo "Authenticated AWS account: $ACCOUNT_ID"
+          aws sts get-caller-identity
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
           if [[ "$ACCOUNT_ID" != "434097521299" ]]; then
-            echo "::error::Incorrect AWS account. Destroy cancelled."
+            echo "ERROR: Connected to unexpected AWS account: $ACCOUNT_ID"
             exit 1
           fi
 
-      # --------------------------------------------------
-      # STEP 5: VERIFY CONFIRMATION
-      # --------------------------------------------------
-      - name: Confirm destroy request
+      - name: Check required GitHub secrets
         env:
-          CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
+          TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
+          RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
         run: |
-          set -euo pipefail
-
-          if [[ "$CONFIRM_DESTROY" != "DESTROY" ]]; then
-            echo "::error::Confirmation must be DESTROY."
+          if [[ -z "$TG_TRANSIT_GATEWAY_ID" ]]; then
+            echo "ERROR: Missing TG_TRANSIT_GATEWAY_ID secret."
             exit 1
           fi
 
-          echo "Destroy confirmation accepted."
+          if [[ -z "$RAM_RESOURCE_SHARE_ARN" ]]; then
+            echo "ERROR: Missing RAM_RESOURCE_SHARE_ARN secret."
+            exit 1
+          fi
 
-      # --------------------------------------------------
-      # STEP 6: INITIALIZE TERRAFORM
-      # --------------------------------------------------
       - name: Terraform Init
-        run: terraform init -input=false
+        run: terraform init
 
-      # --------------------------------------------------
-      # STEP 7: VALIDATE TERRAFORM CONFIGURATION
-      # --------------------------------------------------
       - name: Terraform Validate
         run: terraform validate
 
-      # --------------------------------------------------
-      # STEP 8: GENERATE DESTROY PLAN
-      # --------------------------------------------------
-      - name: Terraform Destroy Plan
+      - name: Create destroy plan
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
           TF_VAR_accept_ram_share_invitation: "false"
-          TF_VAR_subnets: |
-            {
-              "private_1": {
-                "cidr_block": "10.1.0.0/24",
-                "availability_zone": "ap-south-1a",
-                "public": false
-              },
-              "private_2": {
-                "cidr_block": "10.1.1.0/24",
-                "availability_zone": "ap-south-1b",
-                "public": false
-              }
-            }
-        run: terraform plan -destroy -input=false -out=destroy.tfplan
+          TF_VAR_subnets: >-
+            {"private_1":{"cidr":"10.1.0.0/24","az":"ap-south-1a"},"private_2":{"cidr":"10.1.1.0/24","az":"ap-south-1b"}}
+        run: terraform plan -destroy -out=destroy.tfplan
 
-      # --------------------------------------------------
-      # STEP 9: UPLOAD DESTROY PLAN
-      # --------------------------------------------------
-      - name: Upload Destroy Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: spoke-destroy-plan
-          path: terraform/destroy.tfplan
-          retention-days: 1
-
-      # --------------------------------------------------
-      # STEP 10: APPLY DESTROY PLAN
-      # --------------------------------------------------
-      - name: Terraform Destroy
+      - name: Apply destroy plan
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
           TF_VAR_accept_ram_share_invitation: "false"
-          TF_VAR_subnets: |
-            {
-              "private_1": {
-                "cidr_block": "10.1.0.0/24",
-                "availability_zone": "ap-south-1a",
-                "public": false
-              },
-              "private_2": {
-                "cidr_block": "10.1.1.0/24",
-                "availability_zone": "ap-south-1b",
-                "public": false
-              }
-            }
-        run: terraform apply -input=false -auto-approve destroy.tfplan
-
-      # --------------------------------------------------
-      # STEP 11: REPORT COMPLETION
-      # --------------------------------------------------
-      - name: Destroy completed
-        if: success()
-        run: |
-          echo "Terraform destroy completed successfully."
-          echo "Check the AWS VPC console to verify endpoint deletion." 
-  
+          TF_VAR_subnets: >-
+            {"private_1":{"cidr":"10.1.0.0/24","az":"ap-south-1a"},"private_2":{"cidr":"10.1.1.0/24","az":"ap-south-1b"}}
+        run: terraform apply -auto-approve destroy.tfplan  
