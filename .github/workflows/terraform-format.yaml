@@ -125,45 +125,6 @@ jobs:
           echo "Required repository secrets are configured."
 
       # ----------------------------------------------
-      # Verify shared Transit Gateway
-      # ----------------------------------------------
-      - name: Verify shared Transit Gateway
-        env:
-          TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
-        run: |
-          set -euo pipefail
-
-          echo "Checking Transit Gateway in $AWS_REGION"
-
-          if ! TGW_DETAILS="$(aws ec2 describe-transit-gateways \
-            --transit-gateway-ids "$TG_TRANSIT_GATEWAY_ID" \
-            --region "$AWS_REGION" \
-            --query 'TransitGateways[0].[State,OwnerId]' \
-            --output text)"; then
-
-            echo "::error::Unable to describe the Transit Gateway."
-            echo "::error::Check the TGW ID, AWS region, OIDC role permissions, and RAM sharing configuration."
-            exit 1
-          fi
-
-          read -r TGW_STATE TGW_OWNER <<< "$TGW_DETAILS"
-
-          echo "Transit Gateway state: $TGW_STATE"
-          echo "Transit Gateway owner: $TGW_OWNER"
-
-          if [[ "$TGW_STATE" != "available" ]]; then
-            echo "::error::Transit Gateway is not available."
-            exit 1
-          fi
-
-          if [[ "$TGW_OWNER" != "647132523867" ]]; then
-            echo "::error::Transit Gateway is not owned by the expected Hub account."
-            exit 1
-          fi
-
-          echo "Transit Gateway verification successful."
-
-      # ----------------------------------------------
       # Initialize Terraform
       # ----------------------------------------------
       - name: Terraform Init
@@ -176,7 +137,7 @@ jobs:
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
-          TF_VAR_accept_ram_share_invitation: "false"
+          TF_VAR_accept_ram_share_invitation: "true"
           TF_VAR_subnets: |
             {
               "private_1": {
@@ -278,45 +239,6 @@ jobs:
           echo "Required repository secrets are configured."
 
       # ----------------------------------------------
-      # Verify shared Transit Gateway
-      # ----------------------------------------------
-      - name: Verify shared Transit Gateway
-        env:
-          TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
-        run: |
-          set -euo pipefail
-
-          echo "Checking Transit Gateway in $AWS_REGION"
-
-          if ! TGW_DETAILS="$(aws ec2 describe-transit-gateways \
-            --transit-gateway-ids "$TG_TRANSIT_GATEWAY_ID" \
-            --region "$AWS_REGION" \
-            --query 'TransitGateways[0].[State,OwnerId]' \
-            --output text)"; then
-
-            echo "::error::Unable to describe the Transit Gateway."
-            echo "::error::Check the TGW ID, AWS region, OIDC role permissions, and RAM sharing configuration."
-            exit 1
-          fi
-
-          read -r TGW_STATE TGW_OWNER <<< "$TGW_DETAILS"
-
-          echo "Transit Gateway state: $TGW_STATE"
-          echo "Transit Gateway owner: $TGW_OWNER"
-
-          if [[ "$TGW_STATE" != "available" ]]; then
-            echo "::error::Transit Gateway is not available."
-            exit 1
-          fi
-
-          if [[ "$TGW_OWNER" != "647132523867" ]]; then
-            echo "::error::Transit Gateway is not owned by the expected Hub account."
-            exit 1
-          fi
-
-          echo "Transit Gateway verification successful."
-
-      # ----------------------------------------------
       # Initialize Terraform
       # ----------------------------------------------
       - name: Terraform Init
@@ -338,7 +260,7 @@ jobs:
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
-          TF_VAR_accept_ram_share_invitation: "false"
+          TF_VAR_accept_ram_share_invitation: "true"
           TF_VAR_subnets: |
             {
               "private_1": {
@@ -351,4 +273,5 @@ jobs:
                 "availability_zone": "ap-south-1b",
                 "public": false
               }
-        run: terraform apply -input=false -auto-approve tfplan      
+            }
+        run: terraform apply -input=false -auto-approve tfplan
