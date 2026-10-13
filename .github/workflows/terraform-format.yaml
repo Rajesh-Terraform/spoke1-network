@@ -5,31 +5,36 @@ on:
     branches:
       - main
 
+  pull_request:
+    branches:
+      - main
+
   workflow_dispatch:
 
 permissions:
+  id-token: write
   contents: read
 
 env:
   AWS_REGION: ap-south-1
   TF_WORKING_DIR: terraform
-  TF_VERSION: 1.13.4
+  TF_VERSION: "1.13.4"
 
 jobs:
 
-  # =========================================================
-  # 1. VALIDATE
-  # =========================================================
+  # --------------------------------------------------
+  # JOB 1: TERRAFORM VALIDATE
+  # --------------------------------------------------
   validate:
-    name: Format and Validate
+    name: Terraform Format and Validate
     runs-on: ubuntu-latest
 
     defaults:
       run:
-        working-directory: ${{ env.TF_WORKING_DIR }}
+        shell: bash
+        working-directory: terraform
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -38,35 +43,30 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Terraform Format
-        run: terraform fmt 
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive
 
-      - name: Terraform Init
+      - name: Initialize Terraform without backend
         run: terraform init -backend=false -input=false
 
-      - name: Terraform Validate
+      - name: Validate Terraform
         run: terraform validate
 
 
-  # =========================================================
-  # 2. PLAN
-  # =========================================================
+  # --------------------------------------------------
+  # JOB 2: TERRAFORM PLAN
+  # --------------------------------------------------
   plan:
-    name: Terraform Plan - Spoke
-    needs: validate
-
+    name: Terraform Plan
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      id-token: write
+    needs: validate
 
     defaults:
       run:
-        working-directory: ${{ env.TF_WORKING_DIR }}
+        shell: bash
+        working-directory: terraform
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -75,84 +75,108 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # -----------------------------------------------------
-      # AWS SPOKE ACCOUNT
-      # -----------------------------------------------------
-      - name: Configure AWS Credentials - Spoke
+      # ----------------------------------------------
+      # Authenticate to Spoke AWS account using OIDC
+      # ----------------------------------------------
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::434097521299:role/testingdummy
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Verify AWS Account
+      # ----------------------------------------------
+      # Confirm that GitHub authenticated to Spoke
+      # ----------------------------------------------
+      - name: Verify AWS account
         run: |
-          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          set -euo pipefail
 
-          echo "Connected AWS Account: $ACCOUNT_ID"
+          ACCOUNT_ID="$(aws sts get-caller-identity \
+            --query Account \
+            --output text)"
 
-          if [ "$ACCOUNT_ID" != "434097521299" ]; then
-            echo "ERROR: Wrong AWS account!"
-            echo "Expected: 434097521299"
-            echo "Actual:   $ACCOUNT_ID"
+          echo "Authenticated AWS account: $ACCOUNT_ID"
+
+          if [[ "$ACCOUNT_ID" != "434097521299" ]]; then
+            echo "::error::Incorrect AWS account. Expected Spoke account 434097521299."
             exit 1
           fi
 
-          echo "SUCCESS: Connected to Spoke account."
-
-      # -----------------------------------------------------
-      # CHECK SECRETS
-      # -----------------------------------------------------
-      - name: Check Required Secrets
+      # ----------------------------------------------
+      # Check required GitHub repository secrets
+      # ----------------------------------------------
+      - name: Check required secrets
         env:
           TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
         run: |
-          if [ -z "$TG_TRANSIT_GATEWAY_ID" ]; then
-            echo "ERROR: TG_TRANSIT_GATEWAY_ID secret is missing."
+          set -euo pipefail
+
+          if [[ -z "$TG_TRANSIT_GATEWAY_ID" ]]; then
+            echo "::error::Missing TG_TRANSIT_GATEWAY_ID repository secret."
             exit 1
           fi
 
-          if [ -z "$RAM_RESOURCE_SHARE_ARN" ]; then
-            echo "ERROR: RAM_RESOURCE_SHARE_ARN secret is missing."
+          if [[ -z "$RAM_RESOURCE_SHARE_ARN" ]]; then
+            echo "::error::Missing RAM_RESOURCE_SHARE_ARN repository secret."
             exit 1
           fi
 
-          echo "Required secrets are present."
+          echo "Required repository secrets are configured."
 
-      - name: Verify shared Transit Gateway is available
+      # ----------------------------------------------
+      # Verify shared Transit Gateway
+      # ----------------------------------------------
+      - name: Verify shared Transit Gateway
         env:
           TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
         run: |
+          set -euo pipefail
+
+          echo "Checking Transit Gateway in $AWS_REGION"
+
           if ! TGW_DETAILS="$(aws ec2 describe-transit-gateways \
             --transit-gateway-ids "$TG_TRANSIT_GATEWAY_ID" \
             --region "$AWS_REGION" \
             --query 'TransitGateways[0].[State,OwnerId]' \
-            --output text 2>/dev/null)"; then
-            echo "::error::AWS could not find the Transit Gateway configured in TG_TRANSIT_GATEWAY_ID. Confirm the hub apply created a new Transit Gateway, then update TG_TRANSIT_GATEWAY_ID and RAM_RESOURCE_SHARE_ARN in the spoke repository with the latest hub Terraform outputs."
+            --output text)"; then
+
+            echo "::error::Unable to describe the Transit Gateway."
+            echo "::error::Check the TGW ID, AWS region, OIDC role permissions, and RAM sharing configuration."
             exit 1
           fi
 
           read -r TGW_STATE TGW_OWNER <<< "$TGW_DETAILS"
-          if [ "$TGW_STATE" != "available" ] || [ "$TGW_OWNER" != "647132523867" ]; then
-            echo "::error::The configured shared Transit Gateway must be available and owned by hub account 647132523867. Current state: $TGW_STATE; owner: $TGW_OWNER. Complete the hub apply and update both spoke repository secrets with the latest hub Terraform outputs."
+
+          echo "Transit Gateway state: $TGW_STATE"
+          echo "Transit Gateway owner: $TGW_OWNER"
+
+          if [[ "$TGW_STATE" != "available" ]]; then
+            echo "::error::Transit Gateway is not available."
             exit 1
           fi
 
-      # -----------------------------------------------------
-      # TERRAFORM INIT
-      # -----------------------------------------------------
+          if [[ "$TGW_OWNER" != "647132523867" ]]; then
+            echo "::error::Transit Gateway is not owned by the expected Hub account."
+            exit 1
+          fi
+
+          echo "Transit Gateway verification successful."
+
+      # ----------------------------------------------
+      # Initialize Terraform
+      # ----------------------------------------------
       - name: Terraform Init
         run: terraform init -input=false
 
-      # -----------------------------------------------------
-      # TERRAFORM PLAN
-      # -----------------------------------------------------
+      # ----------------------------------------------
+      # Create Terraform plan
+      # ----------------------------------------------
       - name: Terraform Plan
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
           TF_VAR_accept_ram_share_invitation: "false"
-
           TF_VAR_subnets: |
             {
               "private_1": {
@@ -166,12 +190,11 @@ jobs:
                 "public": false
               }
             }
-
         run: terraform plan -input=false -out=tfplan
 
-      # -----------------------------------------------------
-      # UPLOAD PLAN
-      # -----------------------------------------------------
+      # ----------------------------------------------
+      # Upload the saved plan
+      # ----------------------------------------------
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
@@ -180,28 +203,23 @@ jobs:
           retention-days: 1
 
 
-  # =========================================================
-  # 3. APPLY
-  # =========================================================
+  # --------------------------------------------------
+  # JOB 3: TERRAFORM APPLY
+  # --------------------------------------------------
   apply:
-    name: Terraform Apply - Spoke
+    name: Terraform Apply
+    runs-on: ubuntu-latest
     needs: plan
 
-    # Apply ONLY from main branch
-    if: github.ref == 'refs/heads/main'
-
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      id-token: write
+    # Apply only on pushes to main, not pull requests.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
 
     defaults:
       run:
-        working-directory: ${{ env.TF_WORKING_DIR }}
+        shell: bash
+        working-directory: terraform
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -210,76 +228,117 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # -----------------------------------------------------
-      # AWS SPOKE ACCOUNT
-      # -----------------------------------------------------
-      - name: Configure AWS Credentials - Spoke
+      # ----------------------------------------------
+      # Authenticate to Spoke AWS account using OIDC
+      # ----------------------------------------------
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::434097521299:role/testingdummy
           aws-region: ${{ env.AWS_REGION }}
 
-      # -----------------------------------------------------
-      # VERIFY WE ARE IN SPOKE ACCOUNT
-      # -----------------------------------------------------
-      - name: Verify AWS Account
+      # ----------------------------------------------
+      # Verify the AWS account
+      # ----------------------------------------------
+      - name: Verify AWS account
         run: |
-          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          set -euo pipefail
 
-          echo "Connected AWS Account: $ACCOUNT_ID"
+          ACCOUNT_ID="$(aws sts get-caller-identity \
+            --query Account \
+            --output text)"
 
-          if [ "$ACCOUNT_ID" != "434097521299" ]; then
-            echo "ERROR: WRONG AWS ACCOUNT!"
-            echo "Expected: 434097521299"
-            echo "Actual:   $ACCOUNT_ID"
+          echo "Authenticated AWS account: $ACCOUNT_ID"
+
+          if [[ "$ACCOUNT_ID" != "434097521299" ]]; then
+            echo "::error::Incorrect AWS account. Expected Spoke account 434097521299."
             exit 1
           fi
 
-          echo "SUCCESS: Applying to Spoke account."
+      # ----------------------------------------------
+      # Check required secrets
+      # ----------------------------------------------
+      - name: Check required secrets
+        env:
+          TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
+          RAM_RESOURCE_SHARE_ARN: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
+        run: |
+          set -euo pipefail
 
-      - name: Verify shared Transit Gateway is available
+          if [[ -z "$TG_TRANSIT_GATEWAY_ID" ]]; then
+            echo "::error::Missing TG_TRANSIT_GATEWAY_ID repository secret."
+            exit 1
+          fi
+
+          if [[ -z "$RAM_RESOURCE_SHARE_ARN" ]]; then
+            echo "::error::Missing RAM_RESOURCE_SHARE_ARN repository secret."
+            exit 1
+          fi
+
+          echo "Required repository secrets are configured."
+
+      # ----------------------------------------------
+      # Verify shared Transit Gateway
+      # ----------------------------------------------
+      - name: Verify shared Transit Gateway
         env:
           TG_TRANSIT_GATEWAY_ID: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
         run: |
+          set -euo pipefail
+
+          echo "Checking Transit Gateway in $AWS_REGION"
+
           if ! TGW_DETAILS="$(aws ec2 describe-transit-gateways \
             --transit-gateway-ids "$TG_TRANSIT_GATEWAY_ID" \
             --region "$AWS_REGION" \
             --query 'TransitGateways[0].[State,OwnerId]' \
-            --output text 2>/dev/null)"; then
-            echo "::error::AWS could not find the Transit Gateway configured in TG_TRANSIT_GATEWAY_ID. Confirm the hub apply created a new Transit Gateway, then update TG_TRANSIT_GATEWAY_ID and RAM_RESOURCE_SHARE_ARN in the spoke repository with the latest hub Terraform outputs."
+            --output text)"; then
+
+            echo "::error::Unable to describe the Transit Gateway."
+            echo "::error::Check the TGW ID, AWS region, OIDC role permissions, and RAM sharing configuration."
             exit 1
           fi
 
           read -r TGW_STATE TGW_OWNER <<< "$TGW_DETAILS"
-          if [ "$TGW_STATE" != "available" ] || [ "$TGW_OWNER" != "647132523867" ]; then
-            echo "::error::The configured shared Transit Gateway must be available and owned by hub account 647132523867. Current state: $TGW_STATE; owner: $TGW_OWNER. Complete the hub apply and update both spoke repository secrets with the latest hub Terraform outputs."
+
+          echo "Transit Gateway state: $TGW_STATE"
+          echo "Transit Gateway owner: $TGW_OWNER"
+
+          if [[ "$TGW_STATE" != "available" ]]; then
+            echo "::error::Transit Gateway is not available."
             exit 1
           fi
 
-      # -----------------------------------------------------
-      # TERRAFORM INIT
-      # -----------------------------------------------------
+          if [[ "$TGW_OWNER" != "647132523867" ]]; then
+            echo "::error::Transit Gateway is not owned by the expected Hub account."
+            exit 1
+          fi
+
+          echo "Transit Gateway verification successful."
+
+      # ----------------------------------------------
+      # Initialize Terraform
+      # ----------------------------------------------
       - name: Terraform Init
         run: terraform init -input=false
 
-      # -----------------------------------------------------
-      # DOWNLOAD PLAN
-      # -----------------------------------------------------
+      # ----------------------------------------------
+      # Download the exact plan created by the Plan job
+      # ----------------------------------------------
       - name: Download Terraform Plan
         uses: actions/download-artifact@v4
         with:
           name: spoke-terraform-plan
           path: terraform
 
-      # -----------------------------------------------------
-      # APPLY
-      # -----------------------------------------------------
+      # ----------------------------------------------
+      # Apply the saved Terraform plan
+      # ----------------------------------------------
       - name: Terraform Apply
         env:
           TF_VAR_transit_gateway_id: ${{ secrets.TG_TRANSIT_GATEWAY_ID }}
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
           TF_VAR_accept_ram_share_invitation: "false"
-
           TF_VAR_subnets: |
             {
               "private_1": {
@@ -292,6 +351,4 @@ jobs:
                 "availability_zone": "ap-south-1b",
                 "public": false
               }
-            }
-
-        run: terraform apply -input=false -auto-approve tfplan    
+        run: terraform apply -input=false -auto-approve tfplan      
