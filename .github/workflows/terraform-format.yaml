@@ -9,6 +9,13 @@ on:
     branches:
       - main
 
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the reviewed Terraform plan to the spoke account
+        required: true
+        type: boolean
+        default: false
 
 
 permissions:
@@ -258,9 +265,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: plan
 
-    # Apply only from main when explicitly enabled; configure this environment
-    # with required reviewers to add a human approval before deployment.
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.TF_APPLY_ENABLED == 'true'
+    # Pushes require the repository variable; manual runs require an explicit
+    # input. The environment can add a reviewer approval before deployment.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push' && vars.TF_APPLY_ENABLED == 'true') ||
+       (github.event_name == 'workflow_dispatch' && inputs.apply))
     environment: spoke-production
     permissions:
       contents: read
