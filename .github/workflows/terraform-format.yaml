@@ -130,4 +130,4 @@ jobs:
                 "public": false
               }
             }
-        run: terraform apply -input=false -auto-approve destroy.tfplan  
+        run: terraform apply -input=false -auto-approve destroy.tfplan    
