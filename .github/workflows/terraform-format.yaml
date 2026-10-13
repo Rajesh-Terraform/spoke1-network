@@ -90,7 +90,7 @@ jobs:
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
           TF_VAR_accept_ram_share_invitation: "false"
           TF_VAR_subnets: >-
-            {"private_1":{"cidr":"10.1.0.0/24","az":"ap-south-1a"},"private_2":{"cidr":"10.1.1.0/24","az":"ap-south-1b"}}
+            {"private_1":{"cidr_block":"10.1.0.0/24","availability_zone":"ap-south-1a","public":false},"private_2":{"cidr_block":"10.1.1.0/24","availability_zone":"ap-south-1b","public":false}}
         run: terraform plan -destroy -out=destroy.tfplan
 
       - name: Apply destroy plan
@@ -99,5 +99,5 @@ jobs:
           TF_VAR_ram_resource_share_arn: ${{ secrets.RAM_RESOURCE_SHARE_ARN }}
           TF_VAR_accept_ram_share_invitation: "false"
           TF_VAR_subnets: >-
-            {"private_1":{"cidr":"10.1.0.0/24","az":"ap-south-1a"},"private_2":{"cidr":"10.1.1.0/24","az":"ap-south-1b"}}
-        run: terraform apply -auto-approve destroy.tfplan  
+            {"private_1":{"cidr_block":"10.1.0.0/24","availability_zone":"ap-south-1a","public":false},"private_2":{"cidr_block":"10.1.1.0/24","availability_zone":"ap-south-1b","public":false}}
+        run: terraform apply -auto-approve destroy.tfplan    
