@@ -91,7 +91,9 @@ jobs:
           TF_VAR_accept_ram_share_invitation: "false"
           TF_VAR_subnets: >-
             {"private_1":{"cidr_block":"10.1.0.0/24","availability_zone":"ap-south-1a","public":false},"private_2":{"cidr_block":"10.1.1.0/24","availability_zone":"ap-south-1b","public":false}}
-        run: terraform plan -destroy -out=destroy.tfplan
+        # The shared hub TGW may no longer be visible in the spoke account.
+        # Use the recorded state to avoid failing the destroy plan during refresh.
+        run: terraform plan -destroy -refresh=false -input=false -out=destroy.tfplan
 
       - name: Apply destroy plan
         env:
@@ -100,4 +102,4 @@ jobs:
           TF_VAR_accept_ram_share_invitation: "false"
           TF_VAR_subnets: >-
             {"private_1":{"cidr_block":"10.1.0.0/24","availability_zone":"ap-south-1a","public":false},"private_2":{"cidr_block":"10.1.1.0/24","availability_zone":"ap-south-1b","public":false}}
-        run: terraform apply -auto-approve destroy.tfplan    
+        run: terraform apply -input=false -auto-approve destroy.tfplan
