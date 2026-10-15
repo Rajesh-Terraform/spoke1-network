@@ -10,8 +10,10 @@ Run **Phase 5 - Spoke EC2** manually from the Actions tab on `main`. Select
 ID. The workflow assumes the spoke role
 `arn:aws:iam::434097521299:role/testingdummy`. Its OIDC trust policy must allow
 this GitHub repository. The role also needs permissions to manage the EC2,
-security group, IAM role/profile, and this root's Terraform state and lock
-file.
+security group, IAM role/profile, and the S3 backend in
+`terraform/backend.tf`. Phase 5 stores state at the separate key
+`phase5/spoke-ec2/terraform.tfstate`; grant the role access to that object and
+its `.tflock` lock file in addition to the bucket.
 
 The instance type is fixed to `t3.micro`. This is a small, commonly free-tier
 eligible type, but AWS billing eligibility depends on the account, offer, and
