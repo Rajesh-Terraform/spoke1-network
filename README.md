@@ -9,6 +9,11 @@ The Terraform root is in `terraform/` and creates the spoke network foundation t
 - `terraform/modules/vpc-tgw-routes`: routes spoke private subnet traffic to the hub through the TGW.
 - `terraform/modules/vpc-endpoints`: interface endpoints for AWS services and an S3 gateway endpoint.
 
+Phase 5's private spoke EC2 instance and its separate manually triggered
+pipeline are in `phase5-ec2/` and `.github/workflows/phase5-spoke-ec2.yaml`.
+The pipeline assumes the spoke OIDC role documented below and does not modify
+routes. See `phase5-ec2/README.md` for deployment, permissions, and cleanup.
+
 ## Deployment
 
 1. Copy `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars`; set `transit_gateway_id` and `ram_resource_share_arn` from the hub outputs, and review CIDRs, AZs, and the RAM invitation setting.
@@ -19,4 +24,4 @@ The Terraform root is in `terraform/` and creates the spoke network foundation t
 
 For accounts in the same AWS Organization, RAM shares are normally auto-accepted. The GitHub Actions workflow checks for a pending invitation and accepts it before Terraform planning; the Terraform accepter resource remains disabled to avoid failing when AWS has no pending invitation. Ensure the spoke OIDC role can call `ram:GetResourceShareInvitations`, `ram:AcceptResourceShareInvitation`, and `ec2:DescribeTransitGateways`.
 
-If resources were already applied from old phase roots, migrate or import their Terraform state before applying this consolidated root to avoid duplicate resource creation. Connectivity tests and application resources are intentionally outside this repository root.  
+If resources were already applied from old phase roots, migrate or import their Terraform state before applying this consolidated root to avoid duplicate resource creation. Connectivity tests and application resources are intentionally outside the main network Terraform root; the Phase 5 instance has its own separate root.

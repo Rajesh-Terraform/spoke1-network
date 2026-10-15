@@ -1,0 +1,108 @@
+name: Phase 5 - Spoke EC2
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Create or remove the private spoke EC2 instance"
+        required: true
+        type: choice
+        options:
+          - apply
+          - destroy
+      spoke_vpc_id:
+        description: "Deployed spoke VPC ID"
+        required: true
+        type: string
+      spoke_private_subnet_id:
+        description: "Private subnet ID in the spoke VPC"
+        required: true
+        type: string
+      spoke_vpc_cidr:
+        description: "Spoke VPC CIDR"
+        required: true
+        default: "10.1.0.0/16"
+        type: string
+      confirm_destroy:
+        description: 'For destroy only, enter DESTROY exactly'
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  TF_VERSION: 1.13.4
+  TF_VAR_spoke_vpc_id: ${{ inputs.spoke_vpc_id }}
+  TF_VAR_spoke_private_subnet_id: ${{ inputs.spoke_private_subnet_id }}
+  TF_VAR_spoke_vpc_cidr: ${{ inputs.spoke_vpc_cidr }}
+
+jobs:
+  phase5-spoke-ec2:
+    name: ${{ inputs.operation }} spoke EC2
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: phase5-ec2
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure spoke AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::434097521299:role/testingdummy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS account
+        run: |
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          if [[ "$account_id" != "434097521299" ]]; then
+            echo "ERROR: Connected to unexpected AWS account: $account_id"
+            exit 1
+          fi
+
+      - name: Initialize Terraform
+        run: terraform init -input=false
+
+      - name: Validate Terraform
+        run: terraform validate
+
+      - name: Create plan
+        if: inputs.operation == 'apply'
+        run: terraform plan -input=false -out=phase5.tfplan
+
+      - name: Apply plan
+        if: inputs.operation == 'apply'
+        run: terraform apply -input=false -auto-approve phase5.tfplan
+
+      - name: Show instance details
+        if: inputs.operation == 'apply'
+        run: |
+          echo "Spoke instance ID: $(terraform output -raw instance_id)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Spoke private IP: $(terraform output -raw instance_private_ip)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Confirm destroy request
+        if: inputs.operation == 'destroy'
+        env:
+          CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
+        run: |
+          if [[ "$CONFIRM_DESTROY" != "DESTROY" ]]; then
+            echo "ERROR: Enter DESTROY to remove the Phase 5 spoke EC2 instance."
+            exit 1
+          fi
+
+      - name: Destroy spoke EC2
+        if: inputs.operation == 'destroy'
+        run: terraform destroy -input=false -auto-approve
